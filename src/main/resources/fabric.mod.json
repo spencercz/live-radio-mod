@@ -1,0 +1,44 @@
+{
+	"schemaVersion": 1,
+	"id": "live-radio",
+	"version": "${version}",
+	"name": "Live Radio",
+	"description": "Live Radio for Minecraft",
+	"authors": [
+		"Spenczer"
+	],
+	"contact": {
+		"homepage": "https://fabricmc.net/",
+		"sources": "https://github.com/FabricMC/fabric-example-mod"
+	},
+	"license": "CC0-1.0",
+	"icon": "assets/live-radio/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"com.liveradio.LiveRadio"
+		],
+		"client": [
+			"com.liveradio.LiveRadioClient"
+		],
+		"fabric-datagen": [
+			"com.liveradio.LiveRadioDataGenerator"
+		]
+	},
+	"mixins": [
+		"live-radio.mixins.json",
+		{
+			"config": "live-radio.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.15.11",
+		"minecraft": "~1.21.1",
+		"java": ">=21",
+		"fabric-api": "*"
+	},
+	"suggests": {
+		"another-mod": "*"
+	}
+}

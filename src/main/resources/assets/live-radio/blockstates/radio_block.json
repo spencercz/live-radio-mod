@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "activated=false": {
+      "model": "live-radio:block/radio_block"
+    },
+    "activated=true": {
+      "model": "live-radio:block/radio_block_on"
+    }
+  }
+}
