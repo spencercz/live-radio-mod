@@ -23,32 +23,51 @@ import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvents;
 import net.minecraft.state.StateManager;
 import net.minecraft.state.property.BooleanProperty;
+import net.minecraft.state.property.DirectionProperty;
+import net.minecraft.state.property.Properties;
 import net.minecraft.util.ActionResult;
+import net.minecraft.util.BlockMirror;
+import net.minecraft.util.BlockRotation;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
 import net.minecraft.world.World;
 
 /**
  * Right-click to set the station URL; the radio plays while it receives redstone power.
  */
 public class RadioBlock extends Block implements BlockEntityProvider {
+    /** The direction the radio's front faces. */
+    public static final DirectionProperty FACING = Properties.HORIZONTAL_FACING;
     /** True while the radio is powered by redstone, which is what makes it play. */
     public static final BooleanProperty ACTIVATED = BooleanProperty.of("activated");
 
     public RadioBlock(Settings settings) {
         super(settings);
-        setDefaultState(getDefaultState().with(ACTIVATED, false));
+        setDefaultState(getDefaultState().with(FACING, Direction.NORTH).with(ACTIVATED, false));
     }
 
     @Override
     protected void appendProperties(StateManager.Builder<Block, BlockState> builder) {
-        builder.add(ACTIVATED);
+        builder.add(FACING, ACTIVATED);
     }
 
     @Override
     public BlockState getPlacementState(ItemPlacementContext ctx) {
-        return getDefaultState().with(ACTIVATED, ctx.getWorld().isReceivingRedstonePower(ctx.getBlockPos()));
+        return getDefaultState()
+                .with(FACING, ctx.getHorizontalPlayerFacing().getOpposite())
+                .with(ACTIVATED, ctx.getWorld().isReceivingRedstonePower(ctx.getBlockPos()));
+    }
+
+    @Override
+    protected BlockState rotate(BlockState state, BlockRotation rotation) {
+        return state.with(FACING, rotation.rotate(state.get(FACING)));
+    }
+
+    @Override
+    protected BlockState mirror(BlockState state, BlockMirror mirror) {
+        return state.rotate(mirror.getRotation(state.get(FACING)));
     }
 
     @Override
