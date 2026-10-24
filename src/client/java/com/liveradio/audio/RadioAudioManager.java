@@ -6,7 +6,9 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientBlockEntityEvents
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.block.BlockState;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.option.GameOptions;
 import net.minecraft.client.world.ClientWorld;
+import net.minecraft.sound.SoundCategory;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
 import org.jetbrains.annotations.Nullable;
@@ -70,19 +72,29 @@ public final class RadioAudioManager {
             return true;
         });
 
+        boolean audible = isAudible(client.options);
         for (RadioBlockEntity radio : RADIOS) {
-            update(client, world, radio);
+            update(client, world, radio, audible);
         }
     }
 
-    private static void update(MinecraftClient client, ClientWorld world, RadioBlockEntity radio) {
+    /**
+     * Minecraft won't play sounds at zero volume, so a muted radio is treated as switched off.
+     * Otherwise each attempt to play would count as a failed stream and back off the retry delay.
+     */
+    private static boolean isAudible(GameOptions options) {
+        return options.getSoundVolume(SoundCategory.MASTER) > 0.0F
+                && options.getSoundVolume(SoundCategory.RECORDS) > 0.0F;
+    }
+
+    private static void update(MinecraftClient client, ClientWorld world, RadioBlockEntity radio, boolean audible) {
         BlockPos pos = radio.getPos();
         String url = radio.getStationUrl();
         BlockState state = world.getBlockState(pos);
         Playback playback = PLAYBACKS.get(radio);
 
         double range = playback == null ? START_DISTANCE : STOP_DISTANCE;
-        boolean shouldPlay = state.isOf(RadioBlock.RADIO_BLOCK) && state.get(RadioBlock.ACTIVATED)
+        boolean shouldPlay = audible && state.isOf(RadioBlock.RADIO_BLOCK) && state.get(RadioBlock.ACTIVATED)
                 && !url.isEmpty()
                 && client.player.squaredDistanceTo(Vec3d.ofCenter(pos)) <= range * range;
 
@@ -122,7 +134,7 @@ public final class RadioAudioManager {
                 if (client.getSoundManager().isPlaying(sound) && !sound.failedToStart()) {
                     return;
                 }
-                // The stream ended, failed, or was skipped because the volume is zero.
+                // The stream ended or failed.
                 if (ticks - startedAt >= HEALTHY_PLAY_TICKS) {
                     failures = 0;
                 }
