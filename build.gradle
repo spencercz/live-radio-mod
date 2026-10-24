@@ -43,12 +43,8 @@ dependencies {
 	// Fabric API. This is technically optional, but you probably want it anyway.
 	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 
-	// Okhttp
-	implementation 'com.squareup.okhttp3:okhttp:3.14.6'
-
-	// Javazoom
-	implementation 'javazoom:jlayer:1.0.1'
-	
+	// Javazoom JLayer, the MP3 decoder for radio streams. `include` bundles it into the mod jar.
+	include(implementation('javazoom:jlayer:1.0.1'))
 }
 
 processResources {

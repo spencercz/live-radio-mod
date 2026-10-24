@@ -1,6 +1,7 @@
 package com.liveradio;
 
 import com.liveradio.blocks.RadioBlock;
+import com.liveradio.network.RadioNetworking;
 import net.fabricmc.api.ModInitializer;
 
 import org.slf4j.Logger;
@@ -20,5 +21,6 @@ public class LiveRadio implements ModInitializer {
 
 		LOGGER.info("Initializing blocks...");
 		RadioBlock.initialize();
+		RadioNetworking.initialize();
 	}
 }

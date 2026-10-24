@@ -1,3 +1,7 @@
 {
-  "block.live-radio.radio_block": "Radio"
+  "block.live-radio.radio_block": "Radio",
+  "gui.live-radio.radio.title": "Radio Station",
+  "gui.live-radio.radio.url": "Stream URL",
+  "gui.live-radio.radio.hint": "MP3 streams or .pls/.m3u playlists. Power with redstone to play.",
+  "gui.live-radio.radio.invalid_url": "Enter a full http:// or https:// address"
 }

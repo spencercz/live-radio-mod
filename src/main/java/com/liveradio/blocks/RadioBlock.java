@@ -2,35 +2,38 @@ package com.liveradio.blocks;
 
 import com.liveradio.LiveRadioConstants;
 import com.liveradio.blockentity.RadioBlockEntity;
+import com.liveradio.network.OpenRadioScreenPayload;
 import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockEntityProvider;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.block.entity.BlockEntityType;
-import net.minecraft.entity.mob.PiglinBrain;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.BlockItem;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemGroups;
+import net.minecraft.item.ItemPlacementContext;
 import net.minecraft.registry.Registries;
 import net.minecraft.registry.Registry;
-import net.minecraft.registry.tag.BlockTags;
+import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.sound.BlockSoundGroup;
 import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvents;
 import net.minecraft.state.StateManager;
 import net.minecraft.state.property.BooleanProperty;
-import net.minecraft.text.Text;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
-import net.minecraft.world.event.GameEvent;
-import net.minecraft.world.explosion.Explosion;
 
+/**
+ * Right-click to set the station URL; the radio plays while it receives redstone power.
+ */
 public class RadioBlock extends Block implements BlockEntityProvider {
+    /** True while the radio is powered by redstone, which is what makes it play. */
     public static final BooleanProperty ACTIVATED = BooleanProperty.of("activated");
 
     public RadioBlock(Settings settings) {
@@ -44,79 +47,39 @@ public class RadioBlock extends Block implements BlockEntityProvider {
     }
 
     @Override
+    public BlockState getPlacementState(ItemPlacementContext ctx) {
+        return getDefaultState().with(ACTIVATED, ctx.getWorld().isReceivingRedstonePower(ctx.getBlockPos()));
+    }
+
+    @Override
+    protected void neighborUpdate(BlockState state, World world, BlockPos pos, Block sourceBlock, BlockPos sourcePos, boolean notify) {
+        if (world.isClient) {
+            return;
+        }
+        boolean powered = world.isReceivingRedstonePower(pos);
+        if (powered != state.get(ACTIVATED)) {
+            world.setBlockState(pos, state.with(ACTIVATED, powered), Block.NOTIFY_LISTENERS);
+        }
+    }
+
+    @Override
     protected ActionResult onUse(BlockState state, World world, BlockPos pos, PlayerEntity player, BlockHitResult hit) {
+        if (!player.canModifyBlocks()) {
+            return ActionResult.PASS;
+        }
         if (world.isClient) {
             // Play a click sound to emphasise the interaction.
             world.playSound(player, pos, SoundEvents.BLOCK_COMPARATOR_CLICK, SoundCategory.BLOCKS, 1.0F, 1.0F);
-            return ActionResult.PASS;
+        } else if (player instanceof ServerPlayerEntity serverPlayer
+                && world.getBlockEntity(pos) instanceof RadioBlockEntity radioBlockEntity) {
+            ServerPlayNetworking.send(serverPlayer, new OpenRadioScreenPayload(pos, radioBlockEntity.getStationUrl()));
         }
-        if (!player.getAbilities().allowModifyWorld) {
-            return ActionResult.PASS;
-        }
-        boolean activated = state.get(ACTIVATED);
-        BlockEntity blockEntity = world.getBlockEntity(pos);
-        if (blockEntity instanceof RadioBlockEntity) {
-            RadioBlockEntity radioBlockEntity = (RadioBlockEntity) blockEntity;
-            if (!activated) {
-                radioBlockEntity.buildMusicThread();
-                player.sendMessage(Text.literal("Station is: " + radioBlockEntity.currStation), false);
-            }
-            else {
-                try {
-                    radioBlockEntity.closeMusicThread();
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
-                }
-                player.sendMessage(Text.literal("Stopped"), false);
-            }
-            radioBlockEntity.markDirty();
-        }
-        world.setBlockState(pos, state.with(ACTIVATED, !activated));
-        return ActionResult.SUCCESS;
+        return ActionResult.success(world.isClient);
     }
 
     @Override
     public BlockEntity createBlockEntity(BlockPos pos, BlockState state) {
         return new RadioBlockEntity(pos, state);
-    }
-
-    @Override
-    public BlockState onBreak(World world, BlockPos pos, BlockState state, PlayerEntity player) {
-        this.spawnBreakParticles(world, player, pos, state);
-        if (state.isIn(BlockTags.GUARDED_BY_PIGLINS)) {
-            PiglinBrain.onGuardedBlockInteracted(player, false);
-        }
-        world.emitGameEvent(GameEvent.BLOCK_DESTROY, pos, GameEvent.Emitter.of(player, state));
-        world.setBlockState(pos, state.with(ACTIVATED, false));
-        BlockEntity blockEntity = world.getBlockEntity(pos);
-        if (blockEntity instanceof RadioBlockEntity) {
-            RadioBlockEntity radioBlockEntity = (RadioBlockEntity) blockEntity;
-            if (radioBlockEntity.audioPlayer.isPlaying()) {
-                try {
-                    radioBlockEntity.closeMusicThread();
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
-                }
-            }
-            radioBlockEntity.markDirty();
-        }
-        return state;
-    }
-
-    @Override
-    public void onDestroyedByExplosion(World world, BlockPos pos, Explosion explosion) {
-        BlockEntity blockEntity = world.getBlockEntity(pos);
-        if (blockEntity instanceof RadioBlockEntity) {
-            RadioBlockEntity radioBlockEntity = (RadioBlockEntity) blockEntity;
-            if (radioBlockEntity.audioPlayer.isPlaying()) {
-                try {
-                    radioBlockEntity.closeMusicThread();
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
-                }
-            }
-            radioBlockEntity.markDirty();
-        }
     }
 
     public static Block register(Block block, String name, boolean shouldRegisterItem) {
