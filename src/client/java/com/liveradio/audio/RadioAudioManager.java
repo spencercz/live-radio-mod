@@ -1,5 +1,6 @@
 package com.liveradio.audio;
 
+import com.liveradio.LiveRadio;
 import com.liveradio.blockentity.RadioBlockEntity;
 import com.liveradio.blocks.RadioBlock;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientBlockEntityEvents;
@@ -139,9 +140,12 @@ public final class RadioAudioManager {
                     failures = 0;
                 }
                 stop(client);
-                retryAt = ticks + Math.min((long) RETRY_DELAY_TICKS << failures, MAX_RETRY_DELAY_TICKS);
+                long delay = Math.min((long) RETRY_DELAY_TICKS << failures, MAX_RETRY_DELAY_TICKS);
+                retryAt = ticks + delay;
                 failures = Math.min(failures + 1, 10);
+                LiveRadio.LOGGER.info("Radio at {} stopped playing; retrying in {}s", pos.toShortString(), delay / 20);
             } else if (ticks >= retryAt) {
+                LiveRadio.LOGGER.info("Radio at {} tuning in to {}", pos.toShortString(), url);
                 sound = new RadioSoundInstance(pos, url);
                 startedAt = ticks;
                 client.getSoundManager().play(sound);

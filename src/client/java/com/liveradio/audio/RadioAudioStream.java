@@ -19,9 +19,12 @@ import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
+import java.util.regex.Pattern;
 
 /**
  * Streams an MP3 internet radio station into Minecraft's sound system.
@@ -36,6 +39,12 @@ public class RadioAudioStream implements AudioStream {
     private static final int READ_TIMEOUT_MS = 15_000;
     private static final int MAX_REDIRECTS = 5;
     private static final int MAX_PLAYLIST_BYTES = 64 * 1024;
+    private static final int MAX_PLAYLIST_ENTRIES = 5;
+    private static final int PLAYLIST_SNIFF_BYTES = 64;
+    /** A .pls stream entry, e.g. {@code File1=http://example.com/stream}. */
+    private static final Pattern PLS_FILE_ENTRY = Pattern.compile("(?i)file\\d+=.*");
+    /** Any other .pls line, e.g. {@code Title1=...} or {@code NumberOfEntries=1}. */
+    private static final Pattern PLS_SETTING = Pattern.compile("[A-Za-z]+\\d*=.*");
     /** Audio decoded before playback starts, because Minecraft queues four buffers straight away. */
     private static final float PREBUFFER_SECONDS = 2.0F;
     /** Caps each buffer handed to the sound system so the four initial buffers all get real audio. */
@@ -128,18 +137,46 @@ public class RadioAudioStream implements AudioStream {
         }
 
         String type = conn.getContentType() == null ? "" : conn.getContentType().toLowerCase(Locale.ROOT);
-        String path = conn.getURL().getPath().toLowerCase(Locale.ROOT);
-        if (type.contains("mpegurl") || type.contains("scpls")
-                || path.endsWith(".m3u") || path.endsWith(".m3u8") || path.endsWith(".pls")) {
-            String playlist = readPlaylist(conn.getInputStream());
+        BufferedInputStream in = new BufferedInputStream(conn.getInputStream());
+        if (isPlaylist(type, conn.getURL().getPath().toLowerCase(Locale.ROOT), in)) {
+            List<String> entries = playlistEntries(readPlaylist(in), address);
             conn.disconnect();
-            return connect(firstStreamUrl(playlist, address), depth + 1);
+            // Playlists often list mirrors, so fall back to the next entry if one is down.
+            IOException failure = new IOException("Playlist has no http(s) streams");
+            for (String entry : entries) {
+                try {
+                    return connect(entry, depth + 1);
+                } catch (IOException e) {
+                    if (closed) {
+                        throw e;
+                    }
+                    failure = e;
+                }
+            }
+            throw failure;
         }
         if (type.startsWith("text/") || type.contains("aac") || type.contains("ogg")
                 || type.contains("opus") || type.contains("flac")) {
             throw new IOException("Unsupported stream format " + type + " (only MP3 is supported)");
         }
-        return conn.getInputStream();
+        return in;
+    }
+
+    /**
+     * Recognizes .m3u and .pls playlists by content type, extension, or, for servers that send them as
+     * plain text from an address without an extension, by their first line.
+     */
+    private static boolean isPlaylist(String type, String path, BufferedInputStream in) throws IOException {
+        if (type.contains("mpegurl") || type.contains("scpls") || type.contains("pls+xml")
+                || path.endsWith(".m3u") || path.endsWith(".m3u8") || path.endsWith(".pls")) {
+            return true;
+        }
+        in.mark(PLAYLIST_SNIFF_BYTES);
+        byte[] head = in.readNBytes(PLAYLIST_SNIFF_BYTES);
+        in.reset();
+        String start = new String(head, StandardCharsets.UTF_8).replace("﻿", "").stripLeading().toLowerCase(Locale.ROOT);
+        return start.startsWith("#extm3u") || start.startsWith("[playlist]")
+                || start.startsWith("http://") || start.startsWith("https://");
     }
 
     private static String readPlaylist(InputStream in) throws IOException {
@@ -149,24 +186,32 @@ public class RadioAudioStream implements AudioStream {
     }
 
     /**
-     * Finds the first stream in an .m3u or .pls playlist.
+     * Lists the http(s) streams in an .m3u or .pls playlist, resolving relative entries.
      */
-    private static String firstStreamUrl(String playlist, String playlistUrl) throws IOException {
+    private static List<String> playlistEntries(String playlist, String playlistUrl) throws IOException {
         if (playlist.contains("#EXT-X-")) {
             throw new IOException("HLS streams are not supported");
         }
-        for (String line : playlist.split("\\R")) {
+        List<String> entries = new ArrayList<>();
+        for (String line : playlist.replace("﻿", "").split("\\R")) {
             line = line.trim();
-            if (line.regionMatches(true, 0, "File", 0, 4) && line.contains("=")) {
+            if (PLS_FILE_ENTRY.matcher(line).matches()) {
                 line = line.substring(line.indexOf('=') + 1).trim();
-            } else if (line.startsWith("#") || line.startsWith("[") || line.contains("=")) {
+            } else if (line.isEmpty() || line.startsWith("#") || line.startsWith("[") || PLS_SETTING.matcher(line).matches()) {
                 continue;
             }
-            if (!line.isEmpty()) {
-                return URI.create(playlistUrl).resolve(line).toString();
+            try {
+                URI uri = URI.create(playlistUrl).resolve(line);
+                String scheme = uri.getScheme();
+                if (("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))
+                        && entries.size() < MAX_PLAYLIST_ENTRIES) {
+                    entries.add(uri.toString());
+                }
+            } catch (IllegalArgumentException e) {
+                // Not a usable address; skip the line.
             }
         }
-        throw new IOException("Playlist has no streams");
+        return entries;
     }
 
     private void decode(InputStream in) throws Exception {
@@ -231,8 +276,8 @@ public class RadioAudioStream implements AudioStream {
             }
             startPlayback = bufferedBytes >= bytesFor(PREBUFFER_SECONDS);
         }
-        if (startPlayback && !ready.isDone()) {
-            ready.complete(this);
+        if (startPlayback && !ready.isDone() && ready.complete(this)) {
+            LiveRadio.LOGGER.info("Radio stream {} started ({} Hz)", url, (int) format.getSampleRate());
         }
     }
 
