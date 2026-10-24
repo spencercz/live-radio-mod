@@ -5,14 +5,14 @@ import com.liveradio.blockentity.RadioBlockEntity;
 import com.liveradio.blocks.RadioBlock;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientBlockEntityEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.minecraft.block.BlockState;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.option.GameOptions;
-import net.minecraft.client.world.ClientWorld;
-import net.minecraft.sound.SoundCategory;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Vec3d;
-import org.jetbrains.annotations.Nullable;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.Options;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.core.BlockPos;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.Vec3;
+import org.jspecify.annotations.Nullable;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -40,12 +40,12 @@ public final class RadioAudioManager {
     }
 
     public static void initialize() {
-        ClientBlockEntityEvents.BLOCK_ENTITY_LOAD.register((blockEntity, world) -> {
+        ClientBlockEntityEvents.BLOCK_ENTITY_LOAD.register((blockEntity, level) -> {
             if (blockEntity instanceof RadioBlockEntity radio) {
                 RADIOS.add(radio);
             }
         });
-        ClientBlockEntityEvents.BLOCK_ENTITY_UNLOAD.register((blockEntity, world) -> {
+        ClientBlockEntityEvents.BLOCK_ENTITY_UNLOAD.register((blockEntity, level) -> {
             if (blockEntity instanceof RadioBlockEntity radio) {
                 RADIOS.remove(radio);
             }
@@ -53,18 +53,18 @@ public final class RadioAudioManager {
         ClientTickEvents.END_CLIENT_TICK.register(RadioAudioManager::tick);
     }
 
-    private static void tick(MinecraftClient client) {
+    private static void tick(Minecraft client) {
         ticks++;
-        ClientWorld world = client.world;
-        if (world == null || client.player == null) {
+        ClientLevel level = client.level;
+        if (level == null || client.player == null) {
             PLAYBACKS.values().forEach(playback -> playback.stop(client));
             PLAYBACKS.clear();
             RADIOS.clear();
             return;
         }
 
-        RADIOS.removeIf(radio -> radio.isRemoved() || radio.getWorld() != world
-                || world.getBlockEntity(radio.getPos()) != radio);
+        RADIOS.removeIf(radio -> radio.isRemoved() || radio.getLevel() != level
+                || level.getBlockEntity(radio.getBlockPos()) != radio);
         PLAYBACKS.entrySet().removeIf(entry -> {
             if (RADIOS.contains(entry.getKey())) {
                 return false;
@@ -75,7 +75,7 @@ public final class RadioAudioManager {
 
         boolean audible = isAudible(client.options);
         for (RadioBlockEntity radio : RADIOS) {
-            update(client, world, radio, audible);
+            update(client, level, radio, audible);
         }
     }
 
@@ -83,21 +83,21 @@ public final class RadioAudioManager {
      * Minecraft won't play sounds at zero volume, so a muted radio is treated as switched off.
      * Otherwise each attempt to play would count as a failed stream and back off the retry delay.
      */
-    private static boolean isAudible(GameOptions options) {
-        return options.getSoundVolume(SoundCategory.MASTER) > 0.0F
-                && options.getSoundVolume(SoundCategory.RECORDS) > 0.0F;
+    private static boolean isAudible(Options options) {
+        return options.getSoundSourceVolume(SoundSource.MASTER) > 0.0F
+                && options.getSoundSourceVolume(SoundSource.RECORDS) > 0.0F;
     }
 
-    private static void update(MinecraftClient client, ClientWorld world, RadioBlockEntity radio, boolean audible) {
-        BlockPos pos = radio.getPos();
+    private static void update(Minecraft client, ClientLevel level, RadioBlockEntity radio, boolean audible) {
+        BlockPos pos = radio.getBlockPos();
         String url = radio.getStationUrl();
-        BlockState state = world.getBlockState(pos);
+        BlockState state = level.getBlockState(pos);
         Playback playback = PLAYBACKS.get(radio);
 
         double range = playback == null ? START_DISTANCE : STOP_DISTANCE;
-        boolean shouldPlay = audible && state.isOf(RadioBlock.RADIO_BLOCK) && state.get(RadioBlock.ACTIVATED)
+        boolean shouldPlay = audible && state.is(RadioBlock.RADIO_BLOCK) && state.getValue(RadioBlock.ACTIVATED)
                 && !url.isEmpty()
-                && client.player.squaredDistanceTo(Vec3d.ofCenter(pos)) <= range * range;
+                && client.player.distanceToSqr(Vec3.atCenterOf(pos)) <= range * range;
 
         if (!shouldPlay || (playback != null && !playback.url.equals(url))) {
             if (playback != null) {
@@ -133,7 +133,7 @@ public final class RadioAudioManager {
             this.url = url;
         }
 
-        private void tick(MinecraftClient client, BlockPos pos) {
+        private void tick(Minecraft client, BlockPos pos) {
             if (pending != null) {
                 if (pending.failedToStart()) {
                     stop(client);
@@ -147,7 +147,7 @@ public final class RadioAudioManager {
                     client.getSoundManager().play(sound);
                 }
             } else if (sound != null) {
-                if (client.getSoundManager().isPlaying(sound)) {
+                if (client.getSoundManager().isActive(sound)) {
                     return;
                 }
                 // The stream ended, or Minecraft couldn't play it.
@@ -170,7 +170,7 @@ public final class RadioAudioManager {
             LiveRadio.LOGGER.info("Radio at {} stopped playing; retrying in {}s", pos.toShortString(), delay / 20);
         }
 
-        private void stop(MinecraftClient client) {
+        private void stop(Minecraft client) {
             if (pending != null) {
                 pending.close();
                 pending = null;

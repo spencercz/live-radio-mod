@@ -2,28 +2,28 @@ package com.liveradio.network;
 
 import com.liveradio.LiveRadioConstants;
 import com.liveradio.blockentity.RadioBlockEntity;
-import net.minecraft.network.RegistryByteBuf;
-import net.minecraft.network.codec.PacketCodec;
-import net.minecraft.network.codec.PacketCodecs;
-import net.minecraft.network.packet.CustomPayload;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.math.BlockPos;
+import net.minecraft.core.BlockPos;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.Identifier;
 
 /**
  * Server to client: open the station screen for the radio at {@code pos}.
  */
-public record OpenRadioScreenPayload(BlockPos pos, String stationUrl) implements CustomPayload {
-    public static final Id<OpenRadioScreenPayload> ID =
-            new Id<>(Identifier.of(LiveRadioConstants.MOD_ID, "open_radio_screen"));
+public record OpenRadioScreenPayload(BlockPos pos, String stationUrl) implements CustomPacketPayload {
+    public static final Type<OpenRadioScreenPayload> TYPE =
+            new Type<>(Identifier.fromNamespaceAndPath(LiveRadioConstants.MOD_ID, "open_radio_screen"));
 
-    public static final PacketCodec<RegistryByteBuf, OpenRadioScreenPayload> CODEC = PacketCodec.tuple(
-            BlockPos.PACKET_CODEC, OpenRadioScreenPayload::pos,
-            PacketCodecs.string(RadioBlockEntity.MAX_STATION_URL_LENGTH), OpenRadioScreenPayload::stationUrl,
+    public static final StreamCodec<RegistryFriendlyByteBuf, OpenRadioScreenPayload> CODEC = StreamCodec.composite(
+            BlockPos.STREAM_CODEC, OpenRadioScreenPayload::pos,
+            ByteBufCodecs.stringUtf8(RadioBlockEntity.MAX_STATION_URL_LENGTH), OpenRadioScreenPayload::stationUrl,
             OpenRadioScreenPayload::new
     );
 
     @Override
-    public Id<? extends CustomPayload> getId() {
-        return ID;
+    public Type<? extends CustomPacketPayload> type() {
+        return TYPE;
     }
 }

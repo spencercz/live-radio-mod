@@ -3,127 +3,138 @@ package com.liveradio.blocks;
 import com.liveradio.LiveRadioConstants;
 import com.liveradio.blockentity.RadioBlockEntity;
 import com.liveradio.network.OpenRadioScreenPayload;
-import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;
+import net.fabricmc.fabric.api.creativetab.v1.CreativeModeTabEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
-import net.minecraft.block.Block;
-import net.minecraft.block.BlockEntityProvider;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.block.entity.BlockEntityType;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.BlockItem;
-import net.minecraft.item.Item;
-import net.minecraft.item.ItemGroups;
-import net.minecraft.item.ItemPlacementContext;
-import net.minecraft.registry.Registries;
-import net.minecraft.registry.Registry;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.sound.BlockSoundGroup;
-import net.minecraft.sound.SoundCategory;
-import net.minecraft.sound.SoundEvents;
-import net.minecraft.state.StateManager;
-import net.minecraft.state.property.BooleanProperty;
-import net.minecraft.state.property.DirectionProperty;
-import net.minecraft.state.property.Properties;
-import net.minecraft.util.ActionResult;
-import net.minecraft.util.BlockMirror;
-import net.minecraft.util.BlockRotation;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.hit.BlockHitResult;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Direction;
-import net.minecraft.world.World;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.core.Registry;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.CreativeModeTabs;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.context.BlockPlaceContext;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.EntityBlock;
+import net.minecraft.world.level.block.Mirror;
+import net.minecraft.world.level.block.Rotation;
+import net.minecraft.world.level.block.SoundType;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntityType;
+import net.minecraft.world.level.block.state.BlockBehaviour;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.StateDefinition;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.block.state.properties.BooleanProperty;
+import net.minecraft.world.level.block.state.properties.EnumProperty;
+import net.minecraft.world.level.redstone.Orientation;
+import net.minecraft.world.phys.BlockHitResult;
+import org.jspecify.annotations.Nullable;
+
+import java.util.Set;
+import java.util.function.Function;
 
 /**
  * Right-click to set the station URL; the radio plays while it receives redstone power.
  */
-public class RadioBlock extends Block implements BlockEntityProvider {
+public class RadioBlock extends Block implements EntityBlock {
     /** The direction the radio's front faces. */
-    public static final DirectionProperty FACING = Properties.HORIZONTAL_FACING;
+    public static final EnumProperty<Direction> FACING = BlockStateProperties.HORIZONTAL_FACING;
     /** True while the radio is powered by redstone, which is what makes it play. */
-    public static final BooleanProperty ACTIVATED = BooleanProperty.of("activated");
+    public static final BooleanProperty ACTIVATED = BooleanProperty.create("activated");
 
-    public RadioBlock(Settings settings) {
-        super(settings);
-        setDefaultState(getDefaultState().with(FACING, Direction.NORTH).with(ACTIVATED, false));
+    public RadioBlock(BlockBehaviour.Properties properties) {
+        super(properties);
+        registerDefaultState(defaultBlockState().setValue(FACING, Direction.NORTH).setValue(ACTIVATED, false));
     }
 
     @Override
-    protected void appendProperties(StateManager.Builder<Block, BlockState> builder) {
+    protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
         builder.add(FACING, ACTIVATED);
     }
 
     @Override
-    public BlockState getPlacementState(ItemPlacementContext ctx) {
-        return getDefaultState()
-                .with(FACING, ctx.getHorizontalPlayerFacing().getOpposite())
-                .with(ACTIVATED, ctx.getWorld().isReceivingRedstonePower(ctx.getBlockPos()));
+    public BlockState getStateForPlacement(BlockPlaceContext context) {
+        return defaultBlockState()
+                .setValue(FACING, context.getHorizontalDirection().getOpposite())
+                .setValue(ACTIVATED, context.getLevel().hasNeighborSignal(context.getClickedPos()));
     }
 
     @Override
-    protected BlockState rotate(BlockState state, BlockRotation rotation) {
-        return state.with(FACING, rotation.rotate(state.get(FACING)));
+    protected BlockState rotate(BlockState state, Rotation rotation) {
+        return state.setValue(FACING, rotation.rotate(state.getValue(FACING)));
     }
 
     @Override
-    protected BlockState mirror(BlockState state, BlockMirror mirror) {
-        return state.rotate(mirror.getRotation(state.get(FACING)));
+    protected BlockState mirror(BlockState state, Mirror mirror) {
+        return state.rotate(mirror.getRotation(state.getValue(FACING)));
     }
 
     @Override
-    protected void neighborUpdate(BlockState state, World world, BlockPos pos, Block sourceBlock, BlockPos sourcePos, boolean notify) {
-        if (world.isClient) {
+    protected void neighborChanged(BlockState state, Level level, BlockPos pos, Block block, @Nullable Orientation orientation, boolean movedByPiston) {
+        if (level.isClientSide()) {
             return;
         }
-        boolean powered = world.isReceivingRedstonePower(pos);
-        if (powered != state.get(ACTIVATED)) {
-            world.setBlockState(pos, state.with(ACTIVATED, powered), Block.NOTIFY_LISTENERS);
+        boolean powered = level.hasNeighborSignal(pos);
+        if (powered != state.getValue(ACTIVATED)) {
+            level.setBlock(pos, state.setValue(ACTIVATED, powered), Block.UPDATE_CLIENTS);
         }
     }
 
     @Override
-    protected ActionResult onUse(BlockState state, World world, BlockPos pos, PlayerEntity player, BlockHitResult hit) {
-        if (!player.canModifyBlocks()) {
-            return ActionResult.PASS;
+    protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player, BlockHitResult hitResult) {
+        if (!player.mayBuild()) {
+            return InteractionResult.PASS;
         }
-        if (world.isClient) {
+        if (level.isClientSide()) {
             // Play a click sound to emphasise the interaction.
-            world.playSound(player, pos, SoundEvents.BLOCK_COMPARATOR_CLICK, SoundCategory.BLOCKS, 1.0F, 1.0F);
-        } else if (player instanceof ServerPlayerEntity serverPlayer
-                && world.getBlockEntity(pos) instanceof RadioBlockEntity radioBlockEntity) {
+            level.playSound(player, pos, SoundEvents.COMPARATOR_CLICK, SoundSource.BLOCKS, 1.0F, 1.0F);
+        } else if (player instanceof ServerPlayer serverPlayer
+                && level.getBlockEntity(pos) instanceof RadioBlockEntity radioBlockEntity) {
             ServerPlayNetworking.send(serverPlayer, new OpenRadioScreenPayload(pos, radioBlockEntity.getStationUrl()));
         }
-        return ActionResult.success(world.isClient);
+        return InteractionResult.SUCCESS;
     }
 
     @Override
-    public BlockEntity createBlockEntity(BlockPos pos, BlockState state) {
+    public BlockEntity newBlockEntity(BlockPos pos, BlockState state) {
         return new RadioBlockEntity(pos, state);
     }
 
-    public static Block register(Block block, String name, boolean shouldRegisterItem) {
-        Identifier id = Identifier.of(LiveRadioConstants.MOD_ID, name);
+    public static Block register(String name, Function<BlockBehaviour.Properties, Block> factory, BlockBehaviour.Properties properties, boolean shouldRegisterItem) {
+        Identifier id = Identifier.fromNamespaceAndPath(LiveRadioConstants.MOD_ID, name);
+        Block block = Registry.register(BuiltInRegistries.BLOCK, id, factory.apply(properties.setId(ResourceKey.create(Registries.BLOCK, id))));
         if (shouldRegisterItem) {
-            BlockItem blockItem = new BlockItem(block, new Item.Settings());
-            Registry.register(Registries.ITEM, id, blockItem);
+            ResourceKey<Item> itemKey = ResourceKey.create(Registries.ITEM, id);
+            BlockItem blockItem = new BlockItem(block, new Item.Properties().setId(itemKey).useBlockDescriptionPrefix());
+            Registry.register(BuiltInRegistries.ITEM, itemKey, blockItem);
+            blockItem.registerBlocks(Item.BY_BLOCK, blockItem);
         }
-        return Registry.register(Registries.BLOCK, id, block);
+        return block;
     }
 
-    public static final Block RADIO_BLOCK = register(new RadioBlock(Settings.create()
-            .sounds(BlockSoundGroup.WOOD)
-            .hardness(0.7F)),
-            "radio_block", true);
+    public static final Block RADIO_BLOCK = register("radio_block", RadioBlock::new, BlockBehaviour.Properties.of()
+            .sound(SoundType.WOOD)
+            .destroyTime(0.7F),
+            true);
 
     public static final BlockEntityType<RadioBlockEntity> RADIO_BLOCK_ENTITY = Registry.register(
-            Registries.BLOCK_ENTITY_TYPE,
-            Identifier.of("live-radio", "radio_block_entity"),
-            BlockEntityType.Builder.create(RadioBlockEntity::new, RADIO_BLOCK).build()
+            BuiltInRegistries.BLOCK_ENTITY_TYPE,
+            Identifier.fromNamespaceAndPath("live-radio", "radio_block_entity"),
+            new BlockEntityType<>(RadioBlockEntity::new, Set.of(RADIO_BLOCK))
     );
 
     public static void initialize() {
-        ItemGroupEvents.modifyEntriesEvent(ItemGroups.REDSTONE).register((itemGroup) -> {
-            itemGroup.add(RADIO_BLOCK.asItem());
+        CreativeModeTabEvents.modifyOutputEvent(CreativeModeTabs.REDSTONE_BLOCKS).register((output) -> {
+            output.accept(RADIO_BLOCK);
         });
     }
 }

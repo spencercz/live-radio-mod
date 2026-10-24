@@ -9,8 +9,8 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 public class LiveRadioClient implements ClientModInitializer {
 	@Override
 	public void onInitializeClient() {
-		ClientPlayNetworking.registerGlobalReceiver(OpenRadioScreenPayload.ID, (payload, context) ->
-				context.client().setScreen(new RadioScreen(payload.pos(), payload.stationUrl())));
+		ClientPlayNetworking.registerGlobalReceiver(OpenRadioScreenPayload.TYPE, (payload, context) ->
+				context.client().gui.setScreen(new RadioScreen(payload.pos(), payload.stationUrl())));
 		RadioAudioManager.initialize();
 	}
 }

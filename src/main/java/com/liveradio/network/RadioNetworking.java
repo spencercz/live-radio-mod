@@ -3,8 +3,8 @@ package com.liveradio.network;
 import com.liveradio.blockentity.RadioBlockEntity;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.util.math.BlockPos;
+import net.minecraft.core.BlockPos;
+import net.minecraft.server.level.ServerPlayer;
 
 public final class RadioNetworking {
     private RadioNetworking() {
@@ -14,25 +14,25 @@ public final class RadioNetworking {
      * Registers payload types on both sides and the server's handler for station changes.
      */
     public static void initialize() {
-        PayloadTypeRegistry.playS2C().register(OpenRadioScreenPayload.ID, OpenRadioScreenPayload.CODEC);
-        PayloadTypeRegistry.playC2S().register(SetStationPayload.ID, SetStationPayload.CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(OpenRadioScreenPayload.TYPE, OpenRadioScreenPayload.CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(SetStationPayload.TYPE, SetStationPayload.CODEC);
 
-        ServerPlayNetworking.registerGlobalReceiver(SetStationPayload.ID, RadioNetworking::onSetStation);
+        ServerPlayNetworking.registerGlobalReceiver(SetStationPayload.TYPE, RadioNetworking::onSetStation);
     }
 
     private static void onSetStation(SetStationPayload payload, ServerPlayNetworking.Context context) {
-        ServerPlayerEntity player = context.player();
+        ServerPlayer player = context.player();
         BlockPos pos = payload.pos();
         String url = payload.stationUrl().trim();
 
         // The packet comes from the client, so check everything the GUI was supposed to enforce.
-        if (!player.canModifyBlocks() || !player.canInteractWithBlockAt(pos, 1.0)) {
+        if (!player.mayBuild() || !player.isWithinBlockInteractionRange(pos, 1.0)) {
             return;
         }
         if (!RadioBlockEntity.isValidStationUrl(url)) {
             return;
         }
-        if (player.getWorld().getBlockEntity(pos) instanceof RadioBlockEntity radioBlockEntity) {
+        if (player.level().getBlockEntity(pos) instanceof RadioBlockEntity radioBlockEntity) {
             radioBlockEntity.setStationUrl(url);
         }
     }

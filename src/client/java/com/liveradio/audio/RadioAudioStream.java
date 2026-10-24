@@ -6,7 +6,7 @@ import javazoom.jl.decoder.Decoder;
 import javazoom.jl.decoder.DecoderException;
 import javazoom.jl.decoder.Header;
 import javazoom.jl.decoder.SampleBuffer;
-import net.minecraft.client.sound.AudioStream;
+import net.minecraft.client.sounds.AudioStream;
 import net.minecraft.util.Util;
 import org.lwjgl.BufferUtils;
 
@@ -346,7 +346,7 @@ public class RadioAudioStream implements AudioStream {
         HttpURLConnection conn = connection;
         if (conn != null) {
             // Unblocks the decode thread. Done off-thread since closing a socket can block.
-            Util.getIoWorkerExecutor().execute(conn::disconnect);
+            Util.ioPool().execute(conn::disconnect);
         }
     }
 }

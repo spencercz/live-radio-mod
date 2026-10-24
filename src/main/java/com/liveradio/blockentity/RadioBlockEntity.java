@@ -1,14 +1,14 @@
 package com.liveradio.blockentity;
 
-import net.minecraft.block.Block;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.nbt.NbtCompound;
-import net.minecraft.network.listener.ClientPlayPacketListener;
-import net.minecraft.network.packet.Packet;
-import net.minecraft.network.packet.s2c.play.BlockEntityUpdateS2CPacket;
-import net.minecraft.registry.RegistryWrapper;
-import net.minecraft.util.math.BlockPos;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.HolderLookup;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.storage.ValueInput;
+import net.minecraft.world.level.storage.ValueOutput;
 
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -34,11 +34,11 @@ public class RadioBlockEntity extends BlockEntity {
 
     public void setStationUrl(String url) {
         stationUrl = url;
-        markDirty();
-        if (world != null) {
-            // Sends the new URL to clients via toUpdatePacket().
-            BlockState state = getCachedState();
-            world.updateListeners(pos, state, state, Block.NOTIFY_LISTENERS);
+        setChanged();
+        if (level != null) {
+            // Sends the new URL to clients via getUpdatePacket().
+            BlockState state = getBlockState();
+            level.sendBlockUpdated(getBlockPos(), state, state, Block.UPDATE_CLIENTS);
         }
     }
 
@@ -62,25 +62,25 @@ public class RadioBlockEntity extends BlockEntity {
     }
 
     @Override
-    public Packet<ClientPlayPacketListener> toUpdatePacket() {
-        return BlockEntityUpdateS2CPacket.create(this);
+    public ClientboundBlockEntityDataPacket getUpdatePacket() {
+        return ClientboundBlockEntityDataPacket.create(this);
     }
 
     @Override
-    public NbtCompound toInitialChunkDataNbt(RegistryWrapper.WrapperLookup wrapper) {
-        return createNbt(wrapper);
+    public CompoundTag getUpdateTag(HolderLookup.Provider registries) {
+        return saveCustomOnly(registries);
     }
 
     @Override
-    public void writeNbt(NbtCompound nbt, RegistryWrapper.WrapperLookup wrapper) {
-        nbt.putString("station", stationUrl);
-        super.writeNbt(nbt, wrapper);
+    protected void saveAdditional(ValueOutput output) {
+        super.saveAdditional(output);
+        output.putString("station", stationUrl);
     }
 
     @Override
-    public void readNbt(NbtCompound nbt, RegistryWrapper.WrapperLookup wrapper) {
-        super.readNbt(nbt, wrapper);
-        String url = nbt.getString("station");
+    protected void loadAdditional(ValueInput input) {
+        super.loadAdditional(input);
+        String url = input.getStringOr("station", "");
         stationUrl = isValidStationUrl(url) ? url : "";
     }
 }
