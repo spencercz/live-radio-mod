@@ -78,12 +78,15 @@ public class RadioAudioStream implements AudioStream {
     }
 
     /**
-     * Completes once enough audio is buffered to start playback, or exceptionally if the stream fails first.
+     * True once enough audio is buffered to start playback.
      */
-    public CompletableFuture<AudioStream> whenReady() {
-        return ready;
+    public boolean isReady() {
+        return ready.isDone() && !ready.isCompletedExceptionally();
     }
 
+    /**
+     * True if the stream ended or failed before it was ready to play.
+     */
     public boolean failedToStart() {
         return ready.isCompletedExceptionally();
     }

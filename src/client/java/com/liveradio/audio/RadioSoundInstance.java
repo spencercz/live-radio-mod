@@ -9,7 +9,6 @@ import net.minecraft.sound.SoundCategory;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
-import org.jetbrains.annotations.Nullable;
 
 import java.util.concurrent.CompletableFuture;
 
@@ -21,13 +20,14 @@ public class RadioSoundInstance extends AbstractSoundInstance {
     /** Placeholder sound from sounds.json; the audio itself comes from {@link #getAudioStream}. */
     private static final Identifier SOUND_ID = Identifier.of(LiveRadioConstants.MOD_ID, "radio_stream");
 
-    private final String stationUrl;
-    @Nullable
-    private RadioAudioStream stream;
+    private final RadioAudioStream stream;
 
-    public RadioSoundInstance(BlockPos pos, String stationUrl) {
+    /**
+     * @param stream a stream that is already buffered and ready to play
+     */
+    public RadioSoundInstance(BlockPos pos, RadioAudioStream stream) {
         super(SOUND_ID, SoundCategory.RECORDS, SoundInstance.createRandom());
-        this.stationUrl = stationUrl;
+        this.stream = stream;
         Vec3d center = Vec3d.ofCenter(pos);
         this.x = center.x;
         this.y = center.y;
@@ -39,24 +39,14 @@ public class RadioSoundInstance extends AbstractSoundInstance {
 
     @Override
     public CompletableFuture<AudioStream> getAudioStream(SoundLoader loader, Identifier id, boolean repeatInstantly) {
-        stream = RadioAudioStream.open(stationUrl);
-        return stream.whenReady();
+        return CompletableFuture.completedFuture(stream);
     }
 
     /**
-     * True if the station couldn't be played at all. The sound system can't tell this case apart
-     * from a stream that is still connecting, so the sound has to be stopped by hand.
-     */
-    public boolean failedToStart() {
-        return stream != null && stream.failedToStart();
-    }
-
-    /**
-     * Closes the stream. The sound system only does this itself once playback has started.
+     * Closes the stream. Needed when Minecraft skipped the sound (e.g. no free channel), because
+     * then it never takes ownership of the stream.
      */
     public void closeStream() {
-        if (stream != null) {
-            stream.close();
-        }
+        stream.close();
     }
 }

@@ -120,6 +120,9 @@ public final class RadioAudioManager {
      */
     private static final class Playback {
         private final String url;
+        /** Connecting and buffering; not handed to Minecraft yet. */
+        @Nullable
+        private RadioAudioStream pending;
         @Nullable
         private RadioSoundInstance sound;
         private int failures;
@@ -131,28 +134,47 @@ public final class RadioAudioManager {
         }
 
         private void tick(MinecraftClient client, BlockPos pos) {
-            if (sound != null) {
-                if (client.getSoundManager().isPlaying(sound) && !sound.failedToStart()) {
+            if (pending != null) {
+                if (pending.failedToStart()) {
+                    stop(client);
+                    scheduleRetry(pos);
+                } else if (pending.isReady()) {
+                    // Minecraft has only a few streaming channels and never frees one that didn't start
+                    // playing, so a channel is only claimed once there's audio to play.
+                    sound = new RadioSoundInstance(pos, pending);
+                    pending = null;
+                    startedAt = ticks;
+                    client.getSoundManager().play(sound);
+                }
+            } else if (sound != null) {
+                if (client.getSoundManager().isPlaying(sound)) {
                     return;
                 }
-                // The stream ended or failed.
-                if (ticks - startedAt >= HEALTHY_PLAY_TICKS) {
-                    failures = 0;
-                }
+                // The stream ended, or Minecraft couldn't play it.
                 stop(client);
-                long delay = Math.min((long) RETRY_DELAY_TICKS << failures, MAX_RETRY_DELAY_TICKS);
-                retryAt = ticks + delay;
-                failures = Math.min(failures + 1, 10);
-                LiveRadio.LOGGER.info("Radio at {} stopped playing; retrying in {}s", pos.toShortString(), delay / 20);
+                scheduleRetry(pos);
             } else if (ticks >= retryAt) {
                 LiveRadio.LOGGER.info("Radio at {} tuning in to {}", pos.toShortString(), url);
-                sound = new RadioSoundInstance(pos, url);
-                startedAt = ticks;
-                client.getSoundManager().play(sound);
+                pending = RadioAudioStream.open(url);
             }
         }
 
+        private void scheduleRetry(BlockPos pos) {
+            if (startedAt > 0 && ticks - startedAt >= HEALTHY_PLAY_TICKS) {
+                failures = 0;
+            }
+            startedAt = 0;
+            long delay = Math.min((long) RETRY_DELAY_TICKS << failures, MAX_RETRY_DELAY_TICKS);
+            retryAt = ticks + delay;
+            failures = Math.min(failures + 1, 10);
+            LiveRadio.LOGGER.info("Radio at {} stopped playing; retrying in {}s", pos.toShortString(), delay / 20);
+        }
+
         private void stop(MinecraftClient client) {
+            if (pending != null) {
+                pending.close();
+                pending = null;
+            }
             if (sound != null) {
                 client.getSoundManager().stop(sound);
                 sound.closeStream();
