@@ -3,7 +3,8 @@ plugins {
 	id 'maven-publish'
 }
 
-version = project.mod_version
+// Fabric convention: the Minecraft version as SemVer build metadata, e.g. 1.0.0+26.3.
+version = "${project.mod_version}+${project.minecraft_version}"
 group = project.maven_group
 
 base {
